@@ -33,11 +33,12 @@ def _check_tools(vm):
         )
 
 
-def _wait_for_process(process_manager, vm, creds, pid, poll_interval=5):
+def _wait_for_process(process_manager, vm, creds, pid, poll_interval=5, verbose=False):
     """Wait for a guest process to finish and return the exit code."""
     exit_code = process_manager.ListProcessesInGuest(vm, creds, [pid]).pop().exitCode
     while exit_code is None:
-        print(f"Program running, PID is {pid}")
+        if verbose:
+            print(f"Program running, PID is {pid}")
         time.sleep(poll_interval)
         exit_code = process_manager.ListProcessesInGuest(vm, creds, [pid]).pop().exitCode
     return exit_code
@@ -63,7 +64,7 @@ def _decode_clixml(data):
 
 
 def execute_command(client, vm, guest_user, guest_pass, command,
-                    capture_output=True, poll_interval=5):
+                    capture_output=True, poll_interval=5, verbose=False):
     """Execute a command inside a VM via VMware Tools.
 
     Auto-detects OS type: uses PowerShell on Windows, /bin/sh on Linux/macOS.
@@ -112,14 +113,16 @@ def execute_command(client, vm, guest_user, guest_pass, command,
         )
 
     pid = process_manager.StartProgramInGuest(vm, creds, program_spec)
-    print(f"Program submitted, PID is {pid}")
+    if verbose:
+        print(f"Program submitted, PID is {pid}")
 
-    exit_code = _wait_for_process(process_manager, vm, creds, pid, poll_interval)
+    exit_code = _wait_for_process(process_manager, vm, creds, pid, poll_interval, verbose=verbose)
 
-    if exit_code == 0:
-        print(f"Program {pid} completed with success")
-    else:
-        print(f"ERROR: Program {pid} completed with failure, exit code: {exit_code}")
+    if verbose:
+        if exit_code == 0:
+            print(f"Program {pid} completed with success")
+        else:
+            print(f"ERROR: Program {pid} completed with failure, exit code: {exit_code}")
 
     result = {"pid": pid, "exit_code": exit_code, "stdout": "", "stderr": ""}
 

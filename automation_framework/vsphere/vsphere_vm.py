@@ -120,14 +120,14 @@ class VSphereVMManager(IVMManager):
         self.pass_login = password
         return login_to_vm(self.client, self.vm, username, password)
 
-    def execute_command(self, command: str, capture_output: bool = True) -> dict:
+    def execute_command(self, command: str, capture_output: bool = True, verbose: bool = False) -> dict:
         self._require_vm()
         if not self.user_login or not self.pass_login:
             raise ValueError("Must log in before executing commands.")
         return execute_command(
             self.client, self.vm,
             self.user_login, self.pass_login,
-            command, capture_output,
+            command, capture_output, verbose=verbose,
         )
 
     # --- Clone ---

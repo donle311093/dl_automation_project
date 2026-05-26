@@ -1,7 +1,10 @@
 from prompt_toolkit import PromptSession as _PromptSession
+import shlex
 
 from cli.output import print_error, print_warning
 from cli.session import SessionState
+
+_SHOW_PID_FLAG = "--show-pid"
 
 
 class ShellREPL:
@@ -25,8 +28,15 @@ class ShellREPL:
             if line in ("exit", "quit"):
                 break
 
+            # Strip --show-pid flag before forwarding the command
+            verbose = _SHOW_PID_FLAG in shlex.split(line)
+            if verbose:
+                tokens = shlex.split(line)
+                tokens.remove(_SHOW_PID_FLAG)
+                line = shlex.join(tokens)
+
             try:
-                result = self.vm.execute_command(line)
+                result = self.vm.execute_command(line, verbose=verbose)
             except Exception as e:
                 print_error(str(e))
                 if self.session.debug:

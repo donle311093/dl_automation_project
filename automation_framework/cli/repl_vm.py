@@ -322,6 +322,7 @@ class VMREPL:
     def cmd_run(self, rest):
         p = self._parser("run")
         p.add_argument("command", nargs=argparse.REMAINDER)
+        p.add_argument("--show-pid", action="store_true", dest="show_pid")
         args, _ = p.parse_known_args(rest)
 
         if not self.session.guest_user:
@@ -337,7 +338,7 @@ class VMREPL:
         self.vm.user_login = self.session.guest_user
         self.vm.pass_login = self.session.guest_pass
 
-        result = self.vm.execute_command(cmd_str)
+        result = self.vm.execute_command(cmd_str, verbose=args.show_pid)
         render(result, fmt=self.session.output_format)
         return True
 
