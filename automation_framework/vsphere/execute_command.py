@@ -33,7 +33,7 @@ def _check_tools(vm):
         )
 
 
-def _wait_for_process(process_manager, vm, creds, pid, poll_interval=5, verbose=False):
+def _wait_for_process(process_manager, vm, creds, pid, poll_interval=0.1, verbose=False):
     """Wait for a guest process to finish and return the exit code."""
     exit_code = process_manager.ListProcessesInGuest(vm, creds, [pid]).pop().exitCode
     while exit_code is None:
@@ -64,7 +64,7 @@ def _decode_clixml(data):
 
 
 def execute_command(client, vm, guest_user, guest_pass, command,
-                    capture_output=True, poll_interval=5, verbose=False):
+                    capture_output=True, poll_interval=0.1, verbose=False):
     """Execute a command inside a VM via VMware Tools.
 
     Auto-detects OS type: uses PowerShell on Windows, /bin/sh on Linux/macOS.
@@ -90,21 +90,19 @@ def execute_command(client, vm, guest_user, guest_pass, command,
     ostype = detect_ostype(vm)
 
     if ostype == OSTYPE['WINDOWS']:
-        encoded_command = base64.b64encode(command.encode('utf-16le')).decode('ascii')
-
         if capture_output:
             ts = int(time.time())
             tmp_out = f"C:\\Windows\\TEMP\\vm_exec_out_{ts}"
             tmp_err = f"C:\\Windows\\TEMP\\vm_exec_err_{ts}"
-            program_spec = vim.vm.guest.ProcessManager.ProgramSpec(
-                programPath='cmd.exe',
-                arguments=f'/c "powershell -encodedCommand {encoded_command} 1> {tmp_out} 2> {tmp_err}"'
-            )
+            ps_script = f"& {{ {command} }} 1>'{tmp_out}' 2>'{tmp_err}'"
+            encoded_command = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
         else:
-            program_spec = vim.vm.guest.ProcessManager.ProgramSpec(
-                programPath='C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-                arguments=f'-encodedCommand {encoded_command}'
-            )
+            encoded_command = base64.b64encode(command.encode('utf-16le')).decode('ascii')
+
+        program_spec = vim.vm.guest.ProcessManager.ProgramSpec(
+            programPath='C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+            arguments=f'-encodedCommand {encoded_command}'
+        )
     else:
         # Linux / macOS
         program_spec = vim.vm.guest.ProcessManager.ProgramSpec(
