@@ -5,9 +5,9 @@ _TOKEN = re.compile(r'<([^<>\s]+)>')
 
 
 def resolve(command: str, context: dict[str, str]) -> str:
-    def replace(match: re.Match) -> str:
+    def replace(match: re.Match[str]) -> str:
         key = match.group(1)
-        return context.get(key, match.group(0))
+        return str(context.get(key, match.group(0)))
     return _TOKEN.sub(replace, command)
 
 
