@@ -13,16 +13,16 @@ pip install robotframework  # for tests
 
 ## Working Directory
 
-All imports assume `automation_framework/` as the working directory:
+All imports assume `vmkit/` as the working directory:
 
 ```bash
-cd automation_framework
+cd vmkit
 python example/example_vm_manager.py
 ```
 
 ## Architecture
 
-Core contracts are in [core/interfaces.py](automation_framework/core/interfaces.py):
+Core contracts are in [core/interfaces.py](vmkit/core/interfaces.py):
 - `IHypervisorManager` — platform-level: connect, find VMs, delete, datastore info
 - `IVMManager` — single VM: power, snapshots, clone, execute_command, annotations
 
@@ -41,11 +41,11 @@ Docker and SSH implement `IVMManager` **partially** — Docker has no annotation
 ## Adding a New Platform
 
 1. Create `<platform>_impl/` with `<Platform>Manager(IHypervisorManager)` + `<Platform>VMManager(IVMManager)`.
-2. Register it in `HypervisorFactory._REGISTRY` in [core/factory.py](automation_framework/core/factory.py).
+2. Register it in `HypervisorFactory._REGISTRY` in [core/factory.py](vmkit/core/factory.py).
 
 ## vSphere Credentials
 
-Create `automation_framework/vsphere/.config` (already gitignored):
+Create `vmkit/vsphere/.config` (already gitignored):
 
 ```ini
 [vcenter]

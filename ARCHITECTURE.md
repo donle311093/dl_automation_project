@@ -183,10 +183,19 @@ class CommandResult:
 
 class PlatformPlugin(ABC):
     @abstractmethod
-    def clone_and_revert(self, template: str, snapshot: str) -> VMHandle: ...
+    def clone_and_snapshot(self, template: str, snapshot: str) -> VMHandle:
+        """Clone template from snapshot, create vmforge-base snapshot on clone."""
+        ...
 
     @abstractmethod
-    def teardown(self, vm: VMHandle): ...
+    def revert_snapshot(self, snapshot: str = "vmforge-base") -> None:
+        """Revert clone to clean state — called before each test."""
+        ...
+
+    @abstractmethod
+    def teardown(self, vm: VMHandle) -> None:
+        """Delete clone — called once after entire suite."""
+        ...
 
 class ExecutorPlugin(ABC):
     @abstractmethod
@@ -205,11 +214,11 @@ EXECUTOR_REGISTRY: dict[str, type[ExecutorPlugin]] = {
 }
 ```
 
-vSphere platform wraps automation_framework:
+vSphere platform wraps vmkit:
 ```python
 class VspherePlatform(PlatformPlugin):
     def __init__(self):
-        self._mgr = VSphereManager()  # from automation_framework/vsphere/
+        self._mgr = VSphereManager()  # from vmkit/vsphere/
 
     def clone_and_revert(self, template: str, snapshot: str) -> VMHandle:
         vm = self._mgr.clone_vm(template)
@@ -226,17 +235,28 @@ suite_builder.py resolves all vars at build time and handles capture_as chaining
 
 ```python
 @dataclass
-class RobotTestCase:
-    name: str                               # "7zip_x86 :: win10-x86 :: download-latest"
-    tags: list[str]                         # ["REG1", "windows", "7zip_x86"]
-    platform: str                           # passed to Library import in Settings
+class AssertItem:
+    path: str
+    equals: Any | None = None              # exact value check
+    equals_field: str | None = None        # cross-field check
+
+@dataclass
+class RobotSuite:
+    """One .robot file — one product × one environment."""
+    product_id: str
+    env_id: str
+    platform: str                          # injected into Library import in Settings
     executor: str
     template: str
-    snapshot: str
-    setup_lines: list[str]                  # resolved commands
-    step_lines: list[tuple[str|None, str]]  # (capture_var | None, resolved_cmd)
-    assert_items: list[tuple[str, Any]]     # (json_path, expected_value — str|int|bool)
-    teardown_lines: list[str]
+    snapshot: str                          # "automation" — used for cloning
+    test_cases: list["RobotTestCase"]
+
+@dataclass
+class RobotTestCase:
+    name: str                              # "7zip_x86 :: win10-x86 :: download-latest"
+    tags: list[str]                        # ["REG1", "7zip_x86"]
+    step_lines: list[tuple[str|None, str]] # (capture_var | None, resolved_cmd)
+    assert_items: list[AssertItem]
 
 def build_test_case(config, env, test) -> RobotTestCase:
     ctx = config.build_var_context(env)
@@ -254,21 +274,31 @@ def build_test_case(config, env, test) -> RobotTestCase:
 renderer.py output example:
 ```robot
 *** Settings ***
-Library    vmforge.framework.robot.keywords.VmForgeKeywords    platform=vsphere    executor=powershell
+Library          vmforge.framework.robot.keywords.VmForgeKeywords    platform=vsphere    executor=powershell
+Suite Setup      Clone VM    windows-10-86    automation
+Suite Teardown   Teardown VM
+Test Setup       Revert Snapshot    vmforge-base
 
 *** Test Cases ***
 
 7zip_x86 :: win10-x86 :: download-latest
-    [Tags]    REG1    windows    7zip_x86
-    [Setup]    Clone And Revert VM    windows-10-86    automation
+    [Tags]    REG1    7zip_x86
     Execute PS    & New-Item -ItemType Directory -Force -Path "C:/Users/Admin/Desktop/wrapper/latest"
     ${output}=    Execute PS    & "C:/Users/Admin/Desktop/wrapper/test_auto_patching.exe" --sig 3112 --download 2
     Check Field    ${output}    result.code      0
     Check Field    ${output}    result.patch_id  12
-    [Teardown]    Teardown VM    windows-10-86
+
+7zip_x86 :: win10-x86 :: install-patch
+    [Tags]    REG1    7zip_x86
+    ${filename}=    Execute PS    (Get-ChildItem -Path "C:/wrapper/latest" -File | Select -First 1).name
+    ${output}=      Execute PS    & "C:/wrapper/test_auto_patching.exe" --install --path "C:/wrapper/latest/${filename}"
+    Check Field    ${output}    result.code    1005
 ```
 
-The `platform` and `executor` args are injected by the renderer from the `Environment` config — each generated `.robot` file gets the correct plugin pair for its environment.
+- `Suite Setup` clones the VM once from the `automation` snapshot, then creates a `vmforge-base` checkpoint.
+- `Test Setup` reverts to `vmforge-base` before each test case (~5–10s, not a full clone).
+- `Suite Teardown` deletes the clone after all tests finish.
+- `platform` and `executor` args are injected by the renderer from `Environment` config.
 
 ### 3.5 Assert Keywords (framework/robot/keywords/AssertKeywords.py)
 
@@ -322,10 +352,11 @@ vmforge run --platform windows --tag REG1 --processes 14
 pabot --processes 14 tests/generated/windows_REG1/
     |
     +-- worker A: 7zip_x86.robot
-    |       [Setup]    Clone And Revert VM   -> VspherePlatform.clone_and_revert()
+    |       [Suite Setup]  Clone VM          -> VspherePlatform.clone_and_snapshot()
+    |       [Test Setup]   Revert Snapshot   -> VspherePlatform.revert_snapshot()
     |       Execute PS <cmd>                 -> PowershellExecutor.run(vm, cmd)
-    |       Check Field ${output} path val  -> AssertKeywords.check_field()
-    |       [Teardown] Teardown VM           -> VspherePlatform.teardown()
+    |       Check Field ${output} path val   -> VmForgeKeywords.check_field()
+    |       [Suite Teardown] Teardown VM     -> VspherePlatform.teardown()
     |
     +-- worker B: 1password.robot (independent, own VM)
     ...
@@ -363,7 +394,7 @@ Mapping:
 | Concern | Mechanism |
 |---|---|
 | Test state isolation | Snapshot revert before every test case ([Setup]) |
-| Template over-provisioning | VmPool semaphore per template name |
+| Clone per suite, revert per test | 1 clone per (product × env), snapshot revert between tests |
 | vSphere connection safety | Each pabot worker has its own VspherePlatform instance |
 | Keyword thread safety | All keyword libraries are stateless per test case |
 | Result merging | pabot merges per-worker XML into final output.xml |

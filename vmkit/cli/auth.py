@@ -60,7 +60,7 @@ def auth(args) -> SessionState:
 
     Priority:
     1. Env vars (VSPHERE_HOST / VSPHERE_USER / VSPHERE_PASS)
-    2. --profile arg or AF_PROFILE env var → ~/.automation_framework/profiles/<name>.config
+    2. --profile arg or VMK_PROFILE env var → ~/.vmkit/profiles/<name>.config
     3. Local config file: vsphere/.config
     4. Interactive prompt
     """
@@ -82,9 +82,9 @@ def auth(args) -> SessionState:
 
     # 2. Profile
     if not config:
-        profile_name = getattr(args, "profile", None) or os.environ.get("AF_PROFILE")
+        profile_name = getattr(args, "profile", None) or os.environ.get("VMK_PROFILE")
         if profile_name:
-            profile_path = Path.home() / ".automation_framework" / "profiles" / f"{profile_name}.config"
+            profile_path = Path.home() / ".vmkit" / "profiles" / f"{profile_name}.config"
             config = _load_ini_config(str(profile_path))
 
     # 3. Local config file

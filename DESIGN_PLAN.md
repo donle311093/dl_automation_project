@@ -98,10 +98,10 @@ Keep JSON for backward compatibility with existing files. Schema is redesigned t
           "capture_as": "output"
         }
       ],
-      "assert": {
-        "result.code": 0,
-        "result.patch_id": 12
-      },
+      "assert": [
+        { "path": "result.code",     "equals": 0  },
+        { "path": "result.patch_id", "equals": 12 }
+      ],
       "teardown": []
     },
     {
@@ -117,10 +117,10 @@ Keep JSON for backward compatibility with existing files. Schema is redesigned t
           "capture_as": "output"
         }
       ],
-      "assert": {
-        "result.code": 1005,
-        "result.patch_id": 12
-      },
+      "assert": [
+        { "path": "result.code",     "equals": 1005 },
+        { "path": "result.patch_id", "equals": 12   }
+      ],
       "teardown": []
     }
   ]
@@ -131,11 +131,11 @@ Keep JSON for backward compatibility with existing files. Schema is redesigned t
 
 | Pattern | Example | Meaning |
 |---|---|---|
-| Exact value | `{"result.code": 0}` | Field equals value |
-| Boolean | `{"result.is_defunct": false}` | Boolean comparison |
-| Cross-field | `{"result.expected_sha256": "=result.sha256"}` | `=`-prefixed value is a field path, not a literal |
-| Nested path | `{"result.signature.background_patching": 0}` | Dot-notation traversal |
-| Error path | `{"error.code": -1030}` | Same traversal, different root |
+| Exact value | `{"path": "result.code", "equals": 0}` | Field equals value |
+| Boolean | `{"path": "result.is_defunct", "equals": false}` | Boolean comparison |
+| Cross-field | `{"path": "result.expected_sha256", "equals_field": "result.sha256"}` | `equals_field` resolves value as a field path |
+| Nested path | `{"path": "result.signature.background_patching", "equals": 0}` | Dot-notation traversal |
+| Error path | `{"path": "error.code", "equals": -1030}` | Same traversal, different root |
 
 ### 2.2 Robot Framework Integration — Pre-generate Strategy
 
@@ -248,9 +248,9 @@ vmforge migrate  --input path/to/old_json/ --output configs/windows/
 
 | Existing module | Role in VMForge |
 |---|---|
-| `automation_framework/vsphere/` | Reused as vSphere platform plugin backend |
-| `automation_framework/ssh/ssh_vm.py` | Reused as SSH executor backend |
+| `vmkit/vsphere/` | Reused as vSphere platform plugin backend |
+| `vmkit/ssh/ssh_vm.py` | Reused as SSH executor backend |
 | `vuln_automation/gen_patching_test_report/` | Ported as Excel reporter |
 | `vuln_automation/src/test/resources/TestConfig/` | Source data for migration tool |
 
-VMForge is the **orchestration layer** above `automation_framework/` — it does not re-implement VM management.
+VMForge is the **orchestration layer** above `vmkit/` — it does not re-implement VM management.

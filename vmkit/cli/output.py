@@ -92,7 +92,7 @@ def print_warning(msg):
 def audit(session, action, detail, status="OK"):
     if session.no_log:
         return
-    log_dir = Path.home() / ".automation_framework"
+    log_dir = Path.home() / ".vmkit"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "audit.log"
     ts = datetime.now(timezone.utc).isoformat()

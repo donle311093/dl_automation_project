@@ -9,7 +9,7 @@ VERSION = "0.1.0"
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="automation-framework",
+        prog="vmkit",
         description="Multi-platform VM management CLI",
     )
     parser.add_argument(
@@ -23,7 +23,7 @@ def build_parser():
     )
     parser.add_argument(
         "--profile", default=None,
-        help="Credentials profile name (~/.automation_framework/profiles/<name>.config)",
+        help="Credentials profile name (~/.vmkit/profiles/<name>.config)",
     )
     parser.add_argument(
         "--output", default="table",
@@ -50,7 +50,7 @@ def main() -> int:
     args, remaining = parser.parse_known_args()
 
     if args.version:
-        print(f"automation-framework {VERSION}")
+        print(f"vmkit {VERSION}")
         return 0
 
     try:

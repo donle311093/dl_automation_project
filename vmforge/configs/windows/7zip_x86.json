@@ -1,0 +1,65 @@
+{
+  "product": {
+    "id": "7zip-x86",
+    "name": "7-Zip x86",
+    "signature": 3112
+  },
+  "vars": {
+    "wrapper_path": "C:/Users/Admin/Desktop/wrapper",
+    "architecture": "32-bit",
+    "patch_id": 12
+  },
+  "environments": [
+    {
+      "id": "win10-x86",
+      "template": "windows-10-86",
+      "snapshot": "automation",
+      "platform": "vsphere",
+      "executor": "powershell",
+      "tags": ["REG1"],
+      "vars": {
+        "exe_path": "C:\\Program Files\\7-Zip\\7zFM.exe"
+      },
+      "run_tests": ["download-latest", "install-patch"]
+    }
+  ],
+  "tests": [
+    {
+      "id": "download-latest",
+      "name": "Download Latest Installer",
+      "setup": [
+        "New-Item -ItemType Directory -Force -Path \"<wrapper_path>/latest\""
+      ],
+      "steps": [
+        {
+          "run": "& \"<wrapper_path>/test_auto_patching.exe\" --sig <signature> --download 2 --architecture <architecture>",
+          "capture_as": "output"
+        }
+      ],
+      "assert": [
+        { "path": "result.code",     "equals": 0  },
+        { "path": "result.patch_id", "equals": 12 }
+      ],
+      "teardown": []
+    },
+    {
+      "id": "install-patch",
+      "name": "Install from File with patch_id",
+      "steps": [
+        {
+          "run": "(Get-ChildItem -Path \"<wrapper_path>/latest\" -Force -File | Select-Object -First 1).name",
+          "capture_as": "filename"
+        },
+        {
+          "run": "& \"<wrapper_path>/test_auto_patching.exe\" --install --path \"<wrapper_path>/latest/<filename>\" --patch_id <patch_id>",
+          "capture_as": "output"
+        }
+      ],
+      "assert": [
+        { "path": "result.code",     "equals": 1005 },
+        { "path": "result.patch_id", "equals": 12   }
+      ],
+      "teardown": []
+    }
+  ]
+}

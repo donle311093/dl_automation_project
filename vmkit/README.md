@@ -1,4 +1,4 @@
-# Automation Framework
+# vmkit
 
 A unified VM management library providing a **consistent API** across **VMware vSphere**, **Proxmox VE**, **VMware Fusion Pro**, **Docker**, and **SSH** — with a full interactive CLI and MCP server built on top.
 
@@ -54,7 +54,7 @@ pip install robotframework
 
 ### vSphere Credentials File
 
-Create `automation_framework/vsphere/.config` (already in `.gitignore`):
+Create `vmkit/vsphere/.config` (already in `.gitignore`):
 
 ```ini
 [vcenter]
@@ -66,11 +66,11 @@ port     = 443
 
 ### Named Profiles
 
-For multiple environments, save profiles to `~/.automation_framework/profiles/<name>.config` (same INI format). Switch with `--profile <name>`.
+For multiple environments, save profiles to `~/.vmkit/profiles/<name>.config` (same INI format). Switch with `--profile <name>`.
 
 ```bash
-mkdir -p ~/.automation_framework/profiles
-cat > ~/.automation_framework/profiles/lab.config << 'EOF'
+mkdir -p ~/.vmkit/profiles
+cat > ~/.vmkit/profiles/lab.config << 'EOF'
 [vcenter]
 host     = 10.0.0.5
 user     = admin@vsphere.local
@@ -90,7 +90,7 @@ All credential fields can be supplied via environment variables (highest priorit
 | `VSPHERE_PASS` | vCenter password |
 | `VSPHERE_PORT` | vCenter port (default: `443`) |
 | `VSPHERE_NO_SSL_VERIFY` | Set to `1` to skip SSL verification |
-| `AF_PROFILE` | Default profile name (used if no `--profile` flag) |
+| `VMK_PROFILE` | Default profile name (used if no `--profile` flag) |
 
 ---
 
@@ -99,11 +99,11 @@ All credential fields can be supplied via environment variables (highest priorit
 ### Quick Start
 
 ```bash
-cd automation_framework
+cd vmkit
 
 # Version check
 python -m cli --version
-# → automation-framework 0.1.0
+# → vmkit 0.1.0
 
 # Interactive REPL (reads credentials from vsphere/.config or prompts)
 python -m cli
@@ -123,9 +123,9 @@ The CLI resolves credentials in this priority order on startup:
 
 ```
 1. Environment variables  VSPHERE_HOST / VSPHERE_USER / VSPHERE_PASS
-2. --profile flag         ~/.automation_framework/profiles/<name>.config
-3. AF_PROFILE env var     same path as above
-4. Local config file      automation_framework/vsphere/.config
+2. --profile flag         ~/.vmkit/profiles/<name>.config
+3. VMK_PROFILE env var     same path as above
+4. Local config file      vmkit/vsphere/.config
 5. Interactive prompt     typed at startup (optionally saved)
 ```
 
@@ -544,7 +544,7 @@ export VM_PASS=GuestPassword
 Test that the server starts cleanly:
 
 ```bash
-cd automation_framework
+cd vmkit
 python -m mcp_server
 # Server starts in stdio mode, waiting for MCP client connections
 ```
@@ -558,10 +558,10 @@ Add the server to your project's `.claude/settings.json`:
 ```json
 {
   "mcpServers": {
-    "automation-framework": {
+    "vmkit": {
       "command": "python",
       "args": ["-m", "mcp_server"],
-      "cwd": "/path/to/dl_automation_project/automation_framework",
+      "cwd": "/path/to/dl_automation_project/vmkit",
       "env": {
         "VSPHERE_HOST": "vcenter.corp.com",
         "VSPHERE_USER": "administrator@vsphere.local",
@@ -597,10 +597,10 @@ Edit the Claude Desktop config file:
 ```json
 {
   "mcpServers": {
-    "automation-framework": {
+    "vmkit": {
       "command": "python",
       "args": ["-m", "mcp_server"],
-      "cwd": "C:\\path\\to\\dl_automation_project\\automation_framework",
+      "cwd": "C:\\path\\to\\dl_automation_project\\vmkit",
       "env": {
         "VSPHERE_HOST": "vcenter.corp.com",
         "VSPHERE_USER": "administrator@vsphere.local",
@@ -747,7 +747,7 @@ with DockerVMManager("my-container") as vm:
 ### Package Structure
 
 ```
-automation_framework/
+vmkit/
 ├── core/                        # Shared abstractions
 │   ├── interfaces.py            #   IVMManager, IHypervisorManager
 │   ├── models.py                #   CloneConfig + CloneConfigBuilder

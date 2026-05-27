@@ -6,7 +6,9 @@
       "Bash(bandit cli/repl_manager.py)",
       "Bash(echo \"---RUFF EXIT $?\")",
       "Bash(echo \"EXIT $?\")",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(python3 *)",
+      "Bash(pip install *)"
     ]
   },
   "enabledPlugins": {

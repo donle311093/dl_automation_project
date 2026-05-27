@@ -1,7 +1,7 @@
 """Unit tests for mcp_server/tools.py and mcp_server/server.py.
 
 Run with:
-    cd automation_framework
+    cd vmkit
     pip install pytest
     pytest tests/unit/test_mcp_tools.py -v
 

@@ -1,0 +1,7 @@
+platform.cfg
+tests/generated/
+*.pyc
+__pycache__/
+.pytest_cache/
+*.egg-info/
+dist/

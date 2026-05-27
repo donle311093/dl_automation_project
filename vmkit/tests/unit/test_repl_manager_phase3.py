@@ -1,7 +1,7 @@
 """Unit tests for ManagerREPL Phase 3 test-runner commands.
 
 Run with:
-    cd automation_framework
+    cd vmkit
     pip install pytest
     pytest tests/unit/test_repl_manager_phase3.py -v
 

@@ -79,18 +79,24 @@ pip install -e ".[dev]"   # run once after scaffold
 **1.1 Models**
 ```python
 # framework/core/schema/models.py
+from typing import Any
 from pydantic import BaseModel, Field
 
 class Step(BaseModel):
     run: str
     capture_as: str | None = None
 
+class AssertItem(BaseModel):
+    path: str
+    equals: Any | None = None          # exact value check
+    equals_field: str | None = None    # cross-field: resolve this path, compare
+
 class TestCase(BaseModel):
     id: str
-    name: str
+    name: str = ""                     # optional — falls back to id if empty
     setup: list[str] = []
     steps: list[Step] = []
-    assert_: dict = Field(default_factory=dict, alias="assert")
+    assert_: list[AssertItem] = Field(default_factory=list, alias="assert")
     teardown: list[str] = []
 
 class Environment(BaseModel):
@@ -100,12 +106,17 @@ class Environment(BaseModel):
     platform: str
     executor: str
     tags: list[str] = []
-    vars: dict[str, str | int] = {}
+    vars: dict[str, Any] = {}
     run_tests: list[str]
 
+class Product(BaseModel):             # C5: typed instead of untyped dict
+    id: str
+    name: str
+    signature: int | None = None
+
 class ProductConfig(BaseModel):
-    product: dict
-    vars: dict[str, str | int] = {}
+    product: Product
+    vars: dict[str, Any] = {}
     environments: list[Environment]
     tests: list[TestCase]
 
@@ -114,7 +125,7 @@ class ProductConfig(BaseModel):
 
     def build_var_context(self, env: Environment) -> dict[str, str]:
         ctx: dict = {}
-        ctx.update(self.product)
+        ctx.update(self.product.model_dump())  # id, name, signature
         ctx.update(self.vars)
         ctx.update(env.vars)
         return {k: str(v) for k, v in ctx.items()}
@@ -166,7 +177,7 @@ python -m pytest tests/unit/test_schema.py -v
 |---|---|
 | `vmforge/framework/plugins/base.py` | `VMHandle`, `CommandResult`, `PlatformPlugin`, `ExecutorPlugin` |
 | `vmforge/framework/plugins/registry.py` | Name → class mapping |
-| `vmforge/framework/plugins/platforms/vsphere.py` | `VspherePlatform` wrapping `automation_framework/vsphere/` |
+| `vmforge/framework/plugins/platforms/vsphere.py` | `VspherePlatform` wrapping `vmkit/vsphere/` |
 | `vmforge/framework/plugins/platforms/ssh_direct.py` | `SshDirectPlatform` for Linux without hypervisor |
 | `vmforge/framework/plugins/executors/powershell.py` | `PowershellExecutor` via vSphere GuestOps |
 | `vmforge/framework/plugins/executors/ssh.py` | `SshExecutor` via paramiko |
@@ -193,10 +204,13 @@ class CommandResult:
 
 class PlatformPlugin(ABC):
     @abstractmethod
-    def clone_and_revert(self, template: str, snapshot: str) -> VMHandle: ...
+    def clone_and_snapshot(self, template: str, snapshot: str) -> VMHandle: ...
 
     @abstractmethod
-    def teardown(self, vm: VMHandle): ...
+    def revert_snapshot(self, snapshot: str = "vmforge-base") -> None: ...
+
+    @abstractmethod
+    def teardown(self, vm: VMHandle) -> None: ...
 
 class ExecutorPlugin(ABC):
     @abstractmethod
@@ -225,8 +239,8 @@ EXECUTOR_REGISTRY: dict[str, type] = {
 ```python
 # framework/plugins/platforms/vsphere.py
 import sys
-sys.path.insert(0, str(Path(__file__).parents[5]))  # reach automation_framework/
-from automation_framework.vsphere.vsphere_manager import VSphereManager
+sys.path.insert(0, str(Path(__file__).parents[5]))  # reach vmkit/
+from vmkit.vsphere.vsphere_manager import VSphereManager
 
 class VspherePlatform(PlatformPlugin):
     def __init__(self):
@@ -284,12 +298,19 @@ from ...core.schema.resolver import resolve
 class RobotTestCase:
     name: str
     tags: list[str]
+    step_lines: list[tuple[str | None, str]]   # (capture_var, resolved_cmd)
+    assert_items: list                          # list[AssertItem] from schema
+
+@dataclass
+class RobotSuite:
+    """One .robot file — one product × one environment."""
+    product_id: str
+    env_id: str
+    platform: str
+    executor: str
     template: str
     snapshot: str
-    setup_lines: list[str]
-    step_lines: list[tuple[str | None, str]]  # (capture_var, resolved_cmd)
-    assert_items: list[tuple[str, str]]       # (json_path, expected)
-    teardown_lines: list[str]
+    test_cases: list[RobotTestCase]
 
 def build_test_case(config, env, test) -> RobotTestCase:
     ctx = config.build_var_context(env)
@@ -303,14 +324,21 @@ def build_test_case(config, env, test) -> RobotTestCase:
             captured[step.capture_as] = f"${{{step.capture_as}}}"
 
     return RobotTestCase(
-        name=f"{config.product['id']} :: {env.id} :: {test.id}",
-        tags=env.tags + [config.product['id']],
+        name=f"{config.product.id} :: {env.id} :: {test.id}",
+        tags=env.tags + [config.product.id],
+        step_lines=step_lines,
+        assert_items=test.assert_,              # already list[AssertItem]
+    )
+
+def build_suite(config, env) -> RobotSuite:
+    return RobotSuite(
+        product_id=config.product.id,
+        env_id=env.id,
+        platform=env.platform,
+        executor=env.executor,
         template=env.template,
         snapshot=env.snapshot,
-        setup_lines=[resolve(cmd, ctx) for cmd in test.setup],
-        step_lines=step_lines,
-        assert_items=list(test.assert_.items()),
-        teardown_lines=[resolve(cmd, ctx) for cmd in test.teardown],
+        test_cases=[build_test_case(config, env, config.get_test(t)) for t in env.run_tests],
     )
 ```
 
@@ -365,19 +393,28 @@ from ...plugins.registry import PLATFORM_REGISTRY, EXECUTOR_REGISTRY
 class VmForgeKeywords:
     ROBOT_LIBRARY_SCOPE = "TEST"
 
+    ROBOT_LIBRARY_SCOPE = "SUITE"          # shared across all tests in the suite
+
     def __init__(self, platform: str, executor: str):
         self._platform = PLATFORM_REGISTRY[platform]()
         self._executor = EXECUTOR_REGISTRY[executor]()
         self._vm = None
 
-    # --- VM Lifecycle ---
+    # --- VM Lifecycle (Suite-level) ---
 
-    @keyword("Clone And Revert VM")
-    def clone_and_revert_vm(self, template: str, snapshot: str = "automation"):
-        self._vm = self._platform.clone_and_revert(template, snapshot)
+    @keyword("Clone VM")
+    def clone_vm(self, template: str, snapshot: str = "automation"):
+        """Suite Setup: clone once, create vmforge-base checkpoint."""
+        self._vm = self._platform.clone_and_snapshot(template, snapshot)
+
+    @keyword("Revert Snapshot")
+    def revert_snapshot(self, snapshot: str = "vmforge-base"):
+        """Test Setup: revert to clean state before each test (~5-10s)."""
+        self._platform.revert_snapshot(snapshot)
 
     @keyword("Teardown VM")
-    def teardown_vm(self, template: str = ""):
+    def teardown_vm(self):
+        """Suite Teardown: delete clone after all tests finish."""
         if self._vm:
             self._platform.teardown(self._vm)
             self._vm = None
@@ -398,14 +435,30 @@ class VmForgeKeywords:
     # --- Assertions ---
 
     @keyword("Check Field")
-    def check_field(self, json_output: str, path: str, expected):
+    def check_field(self, json_output: str, path: str, expected: str):
+        """Keyword form: Check Field  ${output}  result.code  0
+        For equals_field checks, prefix expected with '=': =result.sha256"""
         data = json.loads(json_output)
         actual = self._traverse(data, path)
-        # "=field.path" means cross-field comparison
         if isinstance(expected, str) and expected.startswith("="):
-            expected = self._traverse(data, expected[1:])
+            expected = self._traverse(data, expected[1:])  # equals_field
         assert str(actual) == str(expected), \
             f"{path}: got {actual!r}, expected {expected!r}"
+
+    @keyword("Check Assert Items")
+    def check_assert_items(self, json_output: str, *assert_items_json: str):
+        """Bulk check — called once per test with all assert items serialised as JSON args."""
+        import ast
+        data = json.loads(json_output)
+        for item_json in assert_items_json:
+            item = ast.literal_eval(item_json)  # {"path":..., "equals":...}
+            actual = self._traverse(data, item["path"])
+            if "equals_field" in item:
+                expected = self._traverse(data, item["equals_field"])
+            else:
+                expected = item["equals"]
+            assert str(actual) == str(expected), \
+                f"{item['path']}: got {actual!r}, expected {expected!r}"
 
     @keyword("Check Fields Equal")
     def check_fields_equal(self, json_output: str, path1: str, path2: str):
@@ -612,8 +665,8 @@ def generate(platform: str, tag: str = ""):
     """Generate .robot files without running."""
 
 @app.command()
-def run(platform: str, tag: str = "", processes: int = 14):
-    """Generate + run via pabot."""
+def run(platform: str, tag: str = "", test: str = "", processes: int = 14, dry_run: bool = False):
+    """Generate + run via pabot. --dry-run validates without real VMs."""
 
 @app.command()
 def report(format: str = "excel", output: str = "reports/result.xlsx"):
@@ -625,12 +678,6 @@ def migrate(input: str, output: str):
 
 if __name__ == "__main__":
     app()
-```
-
-**pyproject.toml entry point:**
-```toml
-[project.scripts]
-vmforge = "vmforge.cli:app"
 ```
 
 **Validate:**
