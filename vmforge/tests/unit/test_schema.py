@@ -1,9 +1,12 @@
 import json
 import pytest
+from pydantic import ValidationError
+
 from framework.core.schema.models import (
-    ProductConfig, Product, Environment, TestCase, Step, AssertItem
+    ProductConfig, Product, Environment, TestCaseSpec, TestCase,
+    Step, AssertItem,
 )
-from framework.core.schema.loader import load
+from framework.core.schema.loader import load, load_all, ConfigLoadError
 from framework.core.schema.resolver import resolve, find_unresolved
 
 
@@ -28,7 +31,7 @@ SAMPLE_CONFIG = {
             "name": "Download Latest Installer",
             "steps": [
                 {
-                    "run": "& \"<wrapper_path>/test.exe\" --sig <signature> --arch <architecture>",
+                    "run": '& "<wrapper_path>/test.exe" --sig <signature> --arch <architecture>',
                     "capture_as": "output",
                 }
             ],
@@ -73,9 +76,9 @@ class TestProductConfig:
         t = cfg.get_test("download-latest")
         assert t.id == "download-latest"
 
-    def test_get_test_missing_raises(self):
+    def test_get_test_missing_raises_key_error(self):
         cfg = ProductConfig.model_validate(SAMPLE_CONFIG)
-        with pytest.raises(StopIteration):
+        with pytest.raises(KeyError, match="nonexistent"):
             cfg.get_test("nonexistent")
 
     def test_build_var_context(self):
@@ -88,13 +91,14 @@ class TestProductConfig:
         assert "exe_path" in ctx
 
     def test_env_vars_override_product_vars(self):
-        data = dict(SAMPLE_CONFIG)
-        data = {**SAMPLE_CONFIG}
-        data["vars"] = {"wrapper_path": "C:/global"}
-        data["environments"] = [{
-            **SAMPLE_CONFIG["environments"][0],
-            "vars": {"wrapper_path": "C:/local"},
-        }]
+        data = {
+            **SAMPLE_CONFIG,
+            "vars": {"wrapper_path": "C:/global"},
+            "environments": [{
+                **SAMPLE_CONFIG["environments"][0],
+                "vars": {"wrapper_path": "C:/local"},
+            }],
+        }
         cfg = ProductConfig.model_validate(data)
         ctx = cfg.build_var_context(cfg.environments[0])
         assert ctx["wrapper_path"] == "C:/local"
@@ -103,10 +107,50 @@ class TestProductConfig:
         cfg = ProductConfig.model_validate(SAMPLE_CONFIG)
         assert cfg.environments[0].snapshot == "automation"
 
-    def test_missing_required_field_raises(self):
+    def test_missing_required_field_raises_validation_error(self):
         bad = {k: v for k, v in SAMPLE_CONFIG.items() if k != "product"}
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ProductConfig.model_validate(bad)
+
+    def test_build_var_context_excludes_none_values(self):
+        data = {
+            **SAMPLE_CONFIG,
+            "vars": {"optional_var": None, "present_var": "value"},
+        }
+        cfg = ProductConfig.model_validate(data)
+        ctx = cfg.build_var_context(cfg.environments[0])
+        assert "optional_var" not in ctx
+        assert ctx["present_var"] == "value"
+
+    def test_test_case_alias(self):
+        # TestCase is the public alias; TestCaseSpec is the internal class
+        assert TestCase is TestCaseSpec
+
+    def test_list_defaults_are_independent(self):
+        # Each model instance gets its own list — not shared
+        cfg1 = ProductConfig.model_validate(SAMPLE_CONFIG)
+        cfg2 = ProductConfig.model_validate(SAMPLE_CONFIG)
+        cfg1.tests[0].setup.append("extra")
+        assert cfg2.tests[0].setup == []
+
+
+class TestAssertItem:
+    def test_valid_equals(self):
+        item = AssertItem(path="result.code", equals=0)
+        assert item.equals == 0
+
+    def test_valid_equals_field(self):
+        item = AssertItem(path="result.sha256", equals_field="result.expected_sha256")
+        assert item.equals_field == "result.expected_sha256"
+
+    def test_both_none_raises(self):
+        with pytest.raises(ValidationError, match="equals.*equals_field"):
+            AssertItem(path="result.code")
+
+    def test_both_set_is_valid(self):
+        # equals takes precedence — having both is allowed (no validator blocks it)
+        item = AssertItem(path="result.code", equals=0, equals_field="result.other")
+        assert item.equals == 0
 
 
 class TestResolver:
@@ -123,8 +167,14 @@ class TestResolver:
     def test_resolve_no_tokens(self):
         assert resolve("plain text", {"x": "y"}) == "plain text"
 
+    def test_resolve_empty_string(self):
+        assert resolve("", {"x": "y"}) == ""
+
     def test_resolve_numeric_value(self):
         assert resolve("--sig <signature>", {"signature": "3112"}) == "--sig 3112"
+
+    def test_resolve_token_with_underscore_and_digits(self):
+        assert resolve("<var_1>", {"var_1": "hello"}) == "hello"
 
     def test_find_unresolved(self):
         tokens = find_unresolved("cmd <a> and <b> done")
@@ -133,10 +183,13 @@ class TestResolver:
     def test_find_unresolved_none(self):
         assert find_unresolved("no tokens here") == []
 
+    def test_find_unresolved_with_underscore_digits(self):
+        assert find_unresolved("<var_1> <name2>") == ["var_1", "name2"]
+
     def test_resolve_chained_capture(self):
         ctx = {"wrapper_path": "C:/wrapper", "filename": "${filename}"}
         result = resolve('& "<wrapper_path>/<filename>"', ctx)
-        assert result == '& "C:/wrapper/${filename}"' 
+        assert result == '& "C:/wrapper/${filename}"'
 
 
 class TestLoaderFromFile:
@@ -146,9 +199,38 @@ class TestLoaderFromFile:
         cfg = load(p)
         assert cfg.product.id == "7zip-x86"
 
+    def test_load_file_not_found(self, tmp_path):
+        with pytest.raises(ConfigLoadError, match="not found"):
+            load(tmp_path / "nonexistent.json")
+
+    def test_load_malformed_json(self, tmp_path):
+        p = tmp_path / "bad.json"
+        p.write_text("{not valid json", encoding="utf-8")
+        with pytest.raises(ConfigLoadError, match="Malformed JSON"):
+            load(p)
+
+    def test_load_invalid_schema(self, tmp_path):
+        p = tmp_path / "bad_schema.json"
+        p.write_text(json.dumps({"product": {"id": "x"}}), encoding="utf-8")
+        with pytest.raises(ConfigLoadError, match="Schema validation failed"):
+            load(p)
+
     def test_load_all(self, tmp_path):
         for name in ["a.json", "b.json"]:
             (tmp_path / name).write_text(json.dumps(SAMPLE_CONFIG), encoding="utf-8")
-        from framework.core.schema.loader import load_all
         configs = load_all(tmp_path)
         assert len(configs) == 2
+
+    def test_load_all_empty_dir_returns_empty_list(self, tmp_path):
+        configs = load_all(tmp_path)
+        assert configs == []
+
+    def test_load_all_nonexistent_dir(self, tmp_path):
+        with pytest.raises(ConfigLoadError, match="not found"):
+            load_all(tmp_path / "does_not_exist")
+
+    def test_load_all_sorted_by_name(self, tmp_path):
+        for name in ["c.json", "a.json", "b.json"]:
+            (tmp_path / name).write_text(json.dumps(SAMPLE_CONFIG), encoding="utf-8")
+        configs = load_all(tmp_path)
+        assert len(configs) == 3  # order deterministic via sorted()
