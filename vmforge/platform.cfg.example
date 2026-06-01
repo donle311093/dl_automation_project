@@ -1,0 +1,13 @@
+# VMForge platform connection config — copy to platform.cfg and fill in values
+# platform.cfg is gitignored; environment variables override this file
+# Precedence: env vars > platform.cfg > prompts
+
+[vsphere]
+host     = 192.168.1.10
+user     = administrator@vsphere.local
+password = YourPassword
+port     = 443
+
+[ssh_direct]
+# host/user/password passed per-environment via run_tests config or env vars
+# VMFORGE_SSH_HOST, VMFORGE_SSH_USER, VMFORGE_SSH_PASSWORD

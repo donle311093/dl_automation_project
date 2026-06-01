@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A unified multi-platform VM management library providing a consistent API across VMware vSphere, Proxmox VE, VMware Fusion Pro, Docker, and SSH. All code lives under `automation_framework/`.
+A unified multi-platform VM management library providing a consistent API across VMware vSphere, Proxmox VE, VMware Fusion Pro, Docker, and SSH. All code lives under `vmkit/`.
 
 ## Setup
 
@@ -19,7 +19,7 @@ No build system — pure Python, no compilation step.
 ## Running Code
 
 ```bash
-cd automation_framework
+cd vmkit
 
 # Run any example
 python example/example_vm_manager.py
@@ -69,7 +69,7 @@ Docker and SSH do not implement the full `IVMManager` interface:
 
 ## vSphere Configuration
 
-Create `automation_framework/vsphere/.config` (already gitignored):
+Create `vmkit/vsphere/.config` (already gitignored):
 ```ini
 [vcenter]
 host     = 192.168.1.10

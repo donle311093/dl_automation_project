@@ -12,3 +12,4 @@ env/
 # Secrets
 .config
 pyvmomi_example/.config
+vuln_automation
