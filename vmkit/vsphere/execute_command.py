@@ -59,7 +59,14 @@ def _read_guest_file(file_manager, vm, creds, remote_path):
 def _decode_clixml(data):
     """Decode output bytes and strip PowerShell CLIXML wrappers."""
     if data.startswith((b'\xff\xfe', b'\xfe\xff')):
+        # UTF-16 with BOM (PowerShell 5.1 default for > redirect)
         decoded = data.decode('utf-16', errors='replace')
+    elif data.startswith(b'\xef\xbb\xbf'):
+        # UTF-8 with BOM (when Out-File:Encoding = 'utf8' on PS 5.1)
+        decoded = data[3:].decode('utf-8', errors='replace')
+    elif len(data) > 1 and data[1:2] == b'\x00':
+        # UTF-16LE without BOM (some PS versions/host configurations)
+        decoded = data.decode('utf-16-le', errors='replace')
     else:
         decoded = data.decode('utf-8', errors='replace')
     cleaned = re.sub(r'#< CLIXML\r?\n<Objs[\s\S]*?</Objs>', '', decoded).strip()
@@ -97,7 +104,10 @@ def execute_command(client, vm, guest_user, guest_pass, command,
             ts = int(time.time())
             tmp_out = f"C:\\Windows\\TEMP\\vm_exec_out_{ts}"
             tmp_err = f"C:\\Windows\\TEMP\\vm_exec_err_{ts}"
-            ps_script = f"& {{ {command} }} 1>'{tmp_out}' 2>'{tmp_err}'"
+            ps_script = (
+                f"$PSDefaultParameterValues['Out-File:Encoding']='utf8'; "
+                f"& {{ {command} }} 1>'{tmp_out}' 2>'{tmp_err}'"
+            )
             encoded_command = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
         else:
             encoded_command = base64.b64encode(command.encode('utf-16le')).decode('ascii')
