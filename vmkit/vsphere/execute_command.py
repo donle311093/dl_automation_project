@@ -58,7 +58,10 @@ def _read_guest_file(file_manager, vm, creds, remote_path):
 
 def _decode_clixml(data):
     """Decode output bytes and strip PowerShell CLIXML wrappers."""
-    decoded = data.decode('utf-8', errors='replace')
+    if data.startswith((b'\xff\xfe', b'\xfe\xff')):
+        decoded = data.decode('utf-16', errors='replace')
+    else:
+        decoded = data.decode('utf-8', errors='replace')
     cleaned = re.sub(r'#< CLIXML\r?\n<Objs[\s\S]*?</Objs>', '', decoded).strip()
     return cleaned
 
